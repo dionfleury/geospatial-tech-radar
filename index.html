@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geospatial Technology Radar</title>
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #0e1012;
+            color: white;
+            font-family: sans-serif;
+            position: relative;
+        }
+
+        h1 {
+            position: absolute;
+            left: 50%;
+            transform: translate(-50%);
+            text-align: center;
+        }
+
+        svg {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        text {
+            user-select: none;
+        }
+
+        .quadrant-label,
+        .ring-label {
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Geospatial Technology Radar</h1>
+    <svg id="radar"></svg>
+
+    <script type="module">
+
+        import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm"
+        import seedrandom from 'https://cdn.jsdelivr.net/npm/seedrandom@3.0.5/+esm'
+        const technologies = await d3.json( "./technologies.json" )
+
+        const seed = "#323a46"
+
+        let simulation, resizeTimeout
+        const collisionRadius = 24
+        const forceStrength = 0.15
+        const ticks = 300
+
+        const svg = d3.select( "#radar" )
+            .attr( "fill", "currentColor" )
+
+        const quadrantAngles = {
+            "Applications": [ -Math.PI, -Math.PI / 2 ],
+            "Platforms & Services": [ -Math.PI / 2, 0 ],
+            "Components & Toolkits": [ 0, Math.PI / 2 ],
+            "Data & Standards": [ Math.PI / 2, Math.PI ]
+        }
+
+        function createLayout( graphVariant )
+        {
+            const width = window.innerWidth - 128
+            const height = window.innerHeight - 128
+
+            const centerX = width / 2
+            const centerY = height / 2
+
+            const base = Math.min( width, height ) / 2.5
+
+            const quadrantsData = [
+                { name: "Applications", x: -base, y: -base, anchor: "start", angles: [ -Math.PI, -Math.PI / 2 ] },
+                { name: "Platforms & Services", x: base, y: -base, anchor: "end", angles: [ -Math.PI / 2, 0 ] },
+                { name: "Components & Toolkits", x: base, y: base, anchor: "end", angles: [ 0, Math.PI / 2 ] },
+                { name: "Data & Standards", x: -base, y: base, anchor: "start", angles: [ Math.PI / 2, Math.PI ] }
+            ]
+
+            const ringsData = [
+                { name: "Adopt", inner: 0, outer: base * 0.40, color: "#6b7f6e44" }, // Adopt
+                { name: "Trial", inner: base * 0.40, outer: base * 0.60, color: "#6B788444" }, // Trial
+                { name: "Assess", inner: base * 0.60, outer: base * 0.80, color: "#847A6744" }, // Assess
+                { name: "Hold", inner: base * 0.80, outer: base, color: "#846B6B44" } // Hold
+            ]
+
+            return { width, height, centerX, centerY, base, quadrantsData, ringsData }
+
+        }
+
+        function drawGraph( layout )
+        {
+            const { width, height, centerX, centerY, base, ringsData, quadrantsData } = layout
+
+            svg.selectAll( "*" ).remove()
+
+            svg
+                .attr( "width", width )
+                .attr( "height", height )
+                .attr( "viewBox", [ -centerX, -centerY, width, height ] )
+
+            const radar = svg.append( "g" )
+
+            radar
+                .append( "rect" )
+                .attr( "x", -base * 1.15 )
+                .attr( "y", -base * 1.15 )
+                .attr( "width", base * 2.3 )
+                .attr( "height", base * 2.3 )
+                .attr( "rx", 24 )
+                .attr( "ry", 24 )
+                .attr( "fill", "#161a1d" )
+                .attr( "stroke", "#343a40" )
+                .attr( "stroke-width", 1 )
+
+            // rings
+            const arc = d3.arc()
+
+            const rings = radar
+                .selectAll( "path.ring" )
+                .data( ringsData )
+                .join( "path" )
+                .attr( "class", "ring" )
+                .attr( "id", ( _, i ) => `ring-${i}` )
+                .attr( "d", d =>
+                    arc( {
+                        innerRadius: d.inner,
+                        outerRadius: d.outer,
+                        startAngle: 0,
+                        endAngle: 2 * Math.PI
+                    } )
+                )
+                .attr( "fill", d => d.color )
+                .attr( "stroke", "#ccc" )
+                .attr( "stroke-width", 2 )
+
+            // ring labels
+            radar
+                .selectAll( ".ring-label" )
+                .data( ringsData )
+                .join( "text" )
+                .attr( "class", "ring-label" )
+                .attr( "font-size", 18 )
+                // .attr( "font-weight", 600 )
+                .attr( "fill", "#adb5bd" )
+                .append( "textPath" )
+                .attr( "href", ( _, i ) => `#ring-${i}` )
+                .attr( "startOffset", "0" )
+                .attr( "text-anchor", "left" )
+                .text( d => d.name )
+
+            // quadrant lines
+            radar
+                .append( "line" )
+                .attr( "x1", -base )
+                .attr( "x2", base )
+                .attr( "y1", 0 )
+                .attr( "y2", 0 )
+                .attr( "stroke", "#999" )
+
+            radar
+                .append( "line" )
+                .attr( "x1", 0 )
+                .attr( "x2", 0 )
+                .attr( "y1", -base )
+                .attr( "y2", base )
+                .attr( "stroke", "#999" )
+
+            // quadrant labels
+            radar
+                .selectAll( ".quadrant-label" )
+                .data( quadrantsData )
+                .join( "text" )
+                .attr( "class", "quadrant-label" )
+                .attr( "x", d => d.x )
+                .attr( "y", d => d.y )
+                .attr( "text-anchor", d => d.anchor )
+                .text( d => d.name )
+
+        }
+
+        function createNode( technology, layout, rng )
+        {
+            const [ startAngle, endAngle ] = layout.quadrantsData.find( q => q.name == technology.quadrant_enterprise ).angles
+            const ring = layout.ringsData.find( r => r.name == technology.ring )
+            const angle = startAngle + rng() * ( endAngle - startAngle )
+            const radius = ring.inner + rng() * ( ring.outer - ring.inner )
+
+            return {
+                ...technology,
+                targetX: Math.cos( angle ) * radius,
+                targetY: Math.sin( angle ) * radius,
+                x: Math.cos( angle ) * radius,
+                y: Math.sin( angle ) * radius
+            }
+        }
+        function createNodes( layout )
+        {
+            const rng = seedrandom( seed )
+            return technologies.map( t => createNode( t, layout, rng ) )
+        }
+
+        function createSimulation( nodes )
+        {
+            return d3.forceSimulation( nodes )
+                .force( "x", d3.forceX( d => d.targetX ).strength( forceStrength ) )
+                .force( "y", d3.forceY( d => d.targetY ).strength( forceStrength ) )
+                .force( "collision", d3.forceCollide( collisionRadius ) )
+        }
+        function drawNodes( nodes, layout )
+        {
+
+            const g = svg
+                .append( "g" )
+                .attr( "class", "nodes" )
+
+            const node = g
+                .selectAll( "g" )
+                .data( nodes )
+                .join( "g" )
+                .attr( "transform", d => `translate(${d.x},${d.y})` )
+
+            node
+                .append( "circle" )
+                .attr( "r", layout.base < 200 ? 5 : 7 )
+                .attr( "fill", "#1976d2" )
+
+            node
+                .append( "text" )
+                .text( d => d.name )
+                .attr( "x", 12 )
+                .attr( "y", 4 )
+                .attr( "font-size", 12 )
+                .attr( "font-family", "sans-serif" )
+
+            node.append( "title" ).text( d => `${d.name}\nQuadrant: ${d.quadrant_enterprise}\nRing: ${d.ring}` )
+
+            return node
+        }
+
+        function constrainToSegment( d, layout )
+        {
+            const x = d.x
+            const y = d.y
+
+            const r = Math.sqrt( x * x + y * y )
+            let angle = Math.atan2( y, x )
+
+            const ring = layout.ringsData.find( r => r.name == d.ring )
+            const innerRadius = ring.inner + 24
+            const outerRadius = ring.outer - 24
+
+            const clampedR = Math.max( innerRadius, Math.min( outerRadius, r ) )
+
+            const clampAxis = ( v, min ) => Math.abs( v ) < min ? Math.sign( v || 1 ) * min : v
+
+            d.x = clampAxis( Math.cos( angle ) * clampedR, 8 )
+            d.y = clampAxis( Math.sin( angle ) * clampedR, 8 )
+        }
+
+        function render()
+        {
+            simulation?.stop()
+            const layout = createLayout()
+            drawGraph( layout )
+            const nodes = createNodes( layout )
+            const nodeSelection = drawNodes( nodes, layout )
+
+            simulation = createSimulation( nodes )
+
+            simulation.on( "tick", () =>
+            {
+                nodes.forEach( d => constrainToSegment( d, layout ) )
+                nodeSelection.attr( "transform", d => `translate(${d.x},${d.y})` )
+            } )
+        }
+
+        render()
+
+
+        window.addEventListener( "resize", () =>
+        {
+            clearTimeout( resizeTimeout )
+            resizeTimeout = setTimeout( render, 100 )
+        } )
+
+    </script>
+</body>
+
+</html>
